@@ -86,7 +86,7 @@ task cloneTomcat() << {
     exec{
       dir.mkdirs()
       println 'tomcat clone '
-      commandLine 'git','clone ',tomcatUrl
+      commandLine 'git','clone  ',tomcatUrl
     }
   }else{
     exec{
@@ -109,7 +109,7 @@ task gitclone (dependsOn:'cloneTomcat') <<{
     exec{
     dir.mkdirs()
     println 'Master repository Cloning  started ' 
-    commandLine 'git','clone',repoUrl
+    commandLine 'git','clone  ',repoUrl
     }      
   }else {
     exec{
