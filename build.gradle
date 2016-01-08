@@ -36,7 +36,7 @@ tomcatPullLocation=tomcatPullLocationDir
 //catalinaHome = "$System.env.CATALINA_HOME"
 //path = System.getenv()
 //home= path['CATALINA_HOME']
-
+envVarialbe=catalinaHomeVariable
 // *********Mysql Connection and schema,table Creation *******
 dbUsername=propDbUsername
 dbPassword=propDbPassword
@@ -82,13 +82,13 @@ configurations.antClasspath.each { File jar ->
 }
 
  //Task top clone Tomcat Master Repository
-task cloneTomcat() << {  
+task cloneTomcat() << {   
   File dir = new File('apache-tomcat-8.0.18');
   if(!dir.exists()){
     exec{
       dir.mkdirs()
       println 'tomcat clone '
-      commandLine 'git','clone',progithubUrl+tomcatUrl
+      commandLine 'cmd', '/c','git  clone '+tomcatUrl
     }
   }else{
     exec{
@@ -103,15 +103,16 @@ task cloneTomcat() << {
 task gitclone (dependsOn:'cloneTomcat') <<{    
   String x = repoUrl
   String[] folder=x.tokenize("/")  
-  String[] test = folder[1].tokenize(".|\\.")
+  //println folder[0] +'-------'+folder[1]+'---3--'+folder[3]
+  String[] test = folder[3].tokenize(".|\\.")  
   String folderName=test[0];
-  println 'Project----name----'+projectName
+  println 'folder----name----'+folderName
   File dir = new File(folderName);   
    if(!dir.exists()){
     exec{
     dir.mkdirs()
     println 'Master repository Cloning  started ' 
-    commandLine 'git','clone', progithubUrl+repoUrl
+    commandLine 'cmd','/c','git  clone '+repoUrl
     }      
   }else {
     exec{
@@ -187,13 +188,14 @@ war {
     from (libLoc)
   }
   from(webContent)
-  archiveName = projectName+'.war' // 'Sloan_test_1_10000'+'.war'
+  archiveName = projectName+'.war'
 } 
  
 task warGeneration (dependsOn:build) << {
  //stopTomcat()
- //deleteExistingWar()
+ //deleteExistingWar()   %CATALINA_HOME%\bin;
  copyWarToWebApps()
+ setEnvVariable()
  startTomcat()
  }
 //projectName='Sloan_test_1_10000'
@@ -211,7 +213,16 @@ def startTomcat() {
  // runCmd(catalinaHome+'/bin/startup.bat')
   runCmd(tomcatStartUp)
 }
- 
+ def setEnvVariable(){
+  exec{
+    commandLine 'cmd','/c','set'
+    commandLine 'cmd','/c', envVarialbe
+  }
+  println 'environment variable for CATALINA_HOME set'
+ }
+
+
+
 // Executing the Commands
 def runCmd(command) {
   def process = command.execute()
