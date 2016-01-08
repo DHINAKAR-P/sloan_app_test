@@ -1,0 +1,231 @@
+
+ import org.gradle.api.tasks.Exec
+ import groovy.sql.Sql
+
+apply plugin: 'java'
+apply plugin:'war'
+
+project.ext {
+
+// **********Github**********
+progithubUrl = githubUrl
+tomcatUrl=githubTomcatUrl
+repoUrl = masterRepoUrl
+
+// **********Location to pull master Repository *************
+pullLocation = repoPullLocation
+// ****** War file config *********
+
+libLoc = gepLibLocation
+sourceLocation = javaSourceLocation
+webContent = webContentLocation
+warToDeploymentLoc = warToDeployment
+ 
+// ****************** Deployment config ************
+copyGeppettoSource= copyGepSrc
+gepettoWorkingLoc=gepWorkLoc
+
+// **************** Tomcat config ****************
+ 
+tomcatStopCmd=stopTomcat
+tomcatStartUp=startTomcat
+projectName=projectName
+proDeleteDir=projectDeleteDirCmd
+tomcatPullLocation=tomcatPullLocationDir
+
+//catalinaHome = "$System.env.CATALINA_HOME"
+//path = System.getenv()
+//home= path['CATALINA_HOME']
+ 
+// *********Mysql Connection and schema,table Creation *******
+dbUsername=propDbUsername
+dbPassword=propDbPassword
+dbDriver=propDbDriver
+dbUrl=propDbUrl
+schemaScript=projSchemaScript
+tableScript=projTableScript
+}
+
+buildscript {
+  repositories {
+    jcenter()
+  }
+}
+
+// Importing the project dependencies for WAR
+repositories {
+  mavenCentral()
+}
+
+configurations {
+  driver
+  antClasspath
+}
+ 
+dependencies {
+  compile fileTree(dir: libLoc + '/lib', include: '*.jar')
+  def mysqlVersion = '5.1.35'
+  driver group: 'mysql', name: 'mysql-connector-java', version: mysqlVersion 
+  antClasspath 'ant:ant-javamail:1.6.5'
+}
+
+URLClassLoader loader = GroovyObject.class.classLoader
+configurations.driver.each { File file ->
+  loader.addURL(file.toURL())
+}
+
+ClassLoader antClassLoader = org.apache.tools.ant.Project.class.classLoader
+configurations.antClasspath.each { File jar ->
+  antClassLoader.addURL( jar.toURI().toURL() )
+}
+
+ //Task top clone Tomcat Master Repository
+task cloneTomcat() << {   
+  File dir = new File('apache-tomcat-8.0.18');
+  if(!dir.exists()){
+    exec{
+      dir.mkdirs()
+      println 'tomcat clone '
+      commandLine 'git','clone ',tomcatUrl
+    }
+  }else{
+    exec{
+    workingDir = tomcatPullLocation     
+    commandLine 'git','pull'
+    println 'tomcat master repository pulled'
+    }
+  }
+ }
+ 
+//Task for clone or pull master repository
+task gitclone (dependsOn:'cloneTomcat') <<{    
+  String x = repoUrl
+  String[] folder=x.tokenize("/")    
+  String[] test = folder[3].tokenize(".|\\.")  
+  String folderName=test[0];
+  println 'folder----name----'+folderName
+  File dir = new File(folderName);  
+   if(!dir.exists()){
+    exec{
+    dir.mkdirs()
+    println 'Master repository Cloning  started ' 
+    commandLine 'git','clone',repoUrl
+    }      
+  }else {
+    exec{
+      workingDir = pullLocation               
+      commandLine 'git','pull'
+      println 'Pulling master repository.'
+    }
+  }
+}
+
+ //Task for copy tomcat for furture deployment
+task workingTomcat(dependsOn:'gitclone') <<{   
+  copy{   
+    from  'apache-tomcat-8.0.18'
+    into  '~/Desktop/sloan_test/'
+    println 'Tomcat copied.'
+  }
+}
+
+// Task for make copy of master repo for furture operation
+task versionControll(dependsOn:'workingTomcat')<< {
+    copy{
+    from  copyGeppettoSource 
+    into  gepettoWorkingLoc 
+    println 'Generated Application Code Copied.'
+  } 
+ }
+  
+// Preparing the MySQL Server Conntection
+task makeConnection(dependsOn:'versionControll') << {
+  def credentials = [user: dbUsername, password: dbPassword, allowMultiQueries: 'true'] as Properties
+  ext.connectionInstance = Sql.newInstance(dbUrl, credentials, dbDriver)
+  println 'Connected to MySQL server!'
+}
+
+// Creating a New Schema and Table in MySQL Server
+task createSchemaAndTable(dependsOn: 'makeConnection') << {
+  def exeQuery = makeConnection.connectionInstance
+
+  String dbQuery = schemaScript
+  String createDatabase = new File(dbQuery).text
+  exeQuery.execute(createDatabase)
+  println 'Schema created !'
+  String tableQuery = tableScript
+  String createTable = new File(tableQuery).text
+  exeQuery.execute(createTable)
+  exeQuery.close()
+  println 'table  created !'
+  println 'Created a schema and table in MySQL!'
+}
+
+build.dependsOn('createSchemaAndTable')
+  
+sourceSets {
+  main {
+    java {
+      srcDir sourceLocation
+    }   
+  }
+}
+
+// Generating the WAR File
+war {
+  webInf {
+    from (libLoc)
+  }
+  from(webContent)
+  archiveName = projectName+'.war'
+} 
+ 
+task warGeneration (dependsOn:build) << { 
+ //deleteExistingWar()
+ copyWarToWebApps()
+ setEnvVariable()
+ startTomcat()
+ }
+
+ //Copy the war tgo tomcat directory
+def copyWarToWebApps() {
+  copy { 
+  from war
+    into  warToDeploymentLoc +'/webapps'
+    println 'Copying new WAR file to webapps...'
+  }
+} 
+
+ // Starting the Tomcat Server
+def startTomcat() {
+  println 'Starting tomcat server...'    
+  runCmd(tomcatStartUp)
+}
+
+//Seting Environment variable
+def setEnvVariable(){
+ // exec{
+    //commandLine 'cmd','/c','set'
+    //commandLine 'cmd','/c', envVarialbe
+  //}
+  println 'environment variable for CATALINA_HOME set'
+ }
+
+// Executing the Commands
+def runCmd(command) {
+  def process = command.execute()
+  process.waitFor()
+  println process.err.text
+  println process.in.text
+}
+
+
+// Deleting the Existing WAR File
+def deleteExistingWar() {
+  exec{          
+    workingDir  warToDeploymentLoc+'/webapps'//catalinaHome     
+    runCmd (proDeleteDir+projectName+'.war')  
+    runCmd (proDeleteDir+projectName) 
+  }  
+  println 'deleting existing war and  file '  
+} 
