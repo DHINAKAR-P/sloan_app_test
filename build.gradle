@@ -82,8 +82,7 @@ configurations.antClasspath.each { File jar ->
 }
 
  //Task top clone Tomcat Master Repository
-task cloneTomcat() << {
-  println 'Hai User to make your application Connected with MySQL ,creadential should be like follows, ----UserName=root-----password=admin'
+task cloneTomcat() << {  
   File dir = new File('apache-tomcat-8.0.18');
   if(!dir.exists()){
     exec{
