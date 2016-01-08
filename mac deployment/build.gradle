@@ -8,7 +8,7 @@ apply plugin:'war'
 project.ext {
 
 // **********Github**********
-progithubUrl = githubUrl
+//progithubUrl = githubUrl
 tomcatUrl=githubTomcatUrl
 repoUrl = masterRepoUrl
 
