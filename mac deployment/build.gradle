@@ -1,6 +1,7 @@
 
  import org.gradle.api.tasks.Exec
  import groovy.sql.Sql
+ import org.ajoberstar.grgit.*
 
 apply plugin: 'java'
 apply plugin:'war'
@@ -49,6 +50,10 @@ tableScript=projTableScript
 buildscript {
   repositories {
     jcenter()
+    mavenCentral()
+  }
+  dependencies{
+    classpath 'org.ajoberstar:gradle-git:0.8.0' 
   }
 }
 
@@ -67,6 +72,7 @@ dependencies {
   def mysqlVersion = '5.1.35'
   driver group: 'mysql', name: 'mysql-connector-java', version: mysqlVersion 
   antClasspath 'ant:ant-javamail:1.6.5'
+  //classpath 'org.ajoberstar:gradle-git:0.8.0' 
 }
 
 URLClassLoader loader = GroovyObject.class.classLoader
@@ -86,7 +92,8 @@ task cloneTomcat() << {
     exec{
       dir.mkdirs()
       println 'tomcat clone '
-      commandLine 'git ',tomcatUrl
+      def grgit = Grgit.clone(dir: dir, uri: tomcatUrl)
+     // commandLine 'git ',tomcatUrl
     }
   }else{
     exec{
@@ -109,7 +116,8 @@ task gitclone (dependsOn:'cloneTomcat') <<{
     exec{
     dir.mkdirs()
     println 'Master repository Cloning  started ' 
-    commandLine 'git ',repoUrl
+    //commandLine 'git ',repoUrl
+    def grgit = Grgit.clone(dir: dir, uri: repoUrl)
     }      
   }else {
     exec{
