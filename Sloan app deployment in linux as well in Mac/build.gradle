@@ -1,0 +1,343 @@
+// ***** Import Section ***** //
+import groovy.sql.Sql
+import org.gradle.api.tasks.Exec
+import org.apache.tools.ant.taskdefs.condition.Os
+
+// ***** Build Script Dependencies Section ***** //
+buildscript {
+  repositories {
+    jcenter()
+  }
+  dependencies {
+    classpath 'org.hidetake:gradle-ssh-plugin:1.1.3'
+  }
+}
+
+// ***** Plugins Section ***** //
+apply plugin: 'java'
+apply plugin: 'war'
+apply plugin: 'org.hidetake.ssh'
+
+// ***** Properties Section ***** //
+project.ext {
+
+  // ===== Project Config. Part =====//
+  projName = propProjectName
+
+  // ===== WAR Config. Part ===== //
+  projWebArchiveName = propWebArchiveName
+  projWebArchiveVersion = propWebArchiveVersion
+  projWebInfPath = propWebInfPath
+  projWebContentPath = propWebContentPath
+  projJavaSourceDir = propJavaSouceDir
+
+  // ===== Database Config. Part ===== //
+  projDbUsername = propDbUsername
+  projDbPassword = propDbPassword
+  projDbUrl = propDbUrl
+  projDbDriver = propDbDriver
+  projSchemaScript = propSchemaScript
+  projTableScript = propTableScript
+
+  // ===== Tomcat Config. Part ===== //
+  projTomcatWebappsDir = propTomcatWebappsDir
+  projTomcatStartCmd = propTomcatStartCmd
+  projTomcatStopCmd = propTomcatStopCmd
+  projDeleteCmd = propDeleteCmd
+
+  // ===== Email Config. Part ===== //
+  projEmailHost = propEmailHost
+  projEmailPort = propEmailPort
+  projEmailUsername = propEmailUsername
+  projEmailPassword = propEmailPassword
+  projEmailContentType = propEmailContentType
+  projEmailSubject = propEmailSubject
+  projEmailSender = propEmailSender
+  projEmailReceiver = propEmailReceiver
+  projEmailMessageBody = propEmailMessageBody
+  projEmailAttachment = propEmailAttachment
+
+  // ===== Android Config. Part ===== //
+  projWorkingDirName = propWorkingDirName
+  projOrgSourceDirName = propOrgSourceDirName
+  projAndroidProjName = propAndroidProjName
+  projSourceDirName = propSourceDirName
+  projDestiDirName = propDestiDirName
+  projIonicUsername = propIonicUsername
+  projIonicPassword = propIonicPassword
+  projSharingUser = propSharingUser
+
+  // ===== SSH Config. Part ===== //
+  projSSHHostName = propSSHHostName
+  projSSHUsername = propSSHUsername
+  projSSHPassword = propSSHPassword
+  projiOSProjectDirPath = propiOSProjectDirPath
+  projiOSSourceDirName = propiOSSourceDirName
+  projScriptSourceDirName = propScriptSourceDirName
+
+
+  repoUrl=masterRepoUrl
+  progithubUrl=githubUrl
+  pullLocation=repoPullLocation
+}
+
+// Describes a project version
+version = projWebArchiveVersion
+
+// Importing the project dependencies to WAR
+repositories {
+  mavenCentral()
+}
+
+configurations {
+  driver
+  antClasspath
+}
+
+dependencies {
+  compile fileTree(dir: projWebInfPath + '/lib', include: '*.jar')
+  def mysqlVersion = '5.1.35'
+  driver group: 'mysql', name: 'mysql-connector-java', version: mysqlVersion
+  antClasspath 'ant:ant-javamail:1.6.5', 'javax.activation:activation:1.1.1', 'javax.mail:mail:1.5.0-b01'
+}
+
+URLClassLoader loader = GroovyObject.class.classLoader
+configurations.driver.each { File file ->
+  loader.addURL(file.toURL())
+}
+
+ClassLoader antClassLoader = org.apache.tools.ant.Project.class.classLoader
+configurations.antClasspath.each { File jar ->
+  antClassLoader.addURL( jar.toURI().toURL() )
+}
+
+// Preparing the SSH Connection
+remotes {
+  webServer {
+    host = projSSHHostName
+    user = projSSHUsername
+    password = projSSHPassword
+    knownHosts = allowAnyHosts
+  }
+}
+
+// ***** Tasks Section ***** //
+
+//Task for clone or pull master repository
+task gitclone () <<{    
+  String x = repoUrl
+  println x
+  String[] folder=x.tokenize("/")  
+  String[] test = folder[1].tokenize(".|\\.")
+  String folderName=test[0];
+  println 'Project----name----'+folderName
+  File dir = new File(folderName);   
+   if(!dir.exists()){
+    exec{
+    dir.mkdirs()
+    println 'Master repository Cloning  started ' 
+    commandLine 'git','clone', progithubUrl+repoUrl
+    }      
+  }else {
+    exec{
+      workingDir = pullLocation              
+      commandLine 'git','pull'
+      println 'Pulling master repository.'
+    }
+  }
+}
+
+task versionControll(dependsOn:'gitclone')<< {
+    copy{
+    from  'sloan_test' 
+    into  '/home/dhinakar/ionicSetUp' 
+    println 'Generated Application Code Copied.'
+  }
+  }
+
+// Preparing the MySQL Server Conntection
+task makeConnection (dependsOn:'versionControll')<< {
+  def props = [user: projDbUsername, password: propDbPassword, allowMultiQueries: 'true'] as Properties
+  ext.connectionInstance = Sql.newInstance(projDbUrl, props, projDbDriver)
+  println 'Connected to MySQL server!'
+}
+
+// Creating a New Schema and Table in MySQL Server
+task createSchemaAndTable(dependsOn: 'makeConnection') << {
+  def exeQuery = makeConnection.connectionInstance
+
+  String dbQuery = projSchemaScript
+  String createDatabase = new File(dbQuery).text
+  exeQuery.execute(createDatabase)
+  
+  String tableQuery = projTableScript
+  String createTable = new File(tableQuery).text
+  exeQuery.execute(createTable)
+  exeQuery.close()
+  println 'Created a schema and table in MySQL!'
+}
+
+// Describes Create Schema and Table Before Build
+build.dependsOn('createSchemaAndTable')
+
+// Compiling the Java Source Code
+sourceSets {
+  main {
+    java {
+      srcDir projJavaSourceDir
+    }   
+  }
+}
+
+// Generating the WAR File
+war {
+  webInf {
+    from (projWebInfPath)
+  }
+  from(projWebContentPath)
+  archiveName = projWebArchiveName
+}
+
+// Deploying the WAR File in Tomcat Server
+task deployToTomcat(dependsOn: build) << {
+  println 'Started deployment!'
+  //stopTomcat()
+  //deleteExistingWar()
+  copyWarToWebApps()
+  //startTomcat()
+  println 'Deployment has been finished!'
+}
+
+// Stopping the Tomcat Server
+def stopTomcat() {
+  println 'Stopping tomcat server...'
+  executeCmd(projTomcatStopCmd)
+}
+
+// Deleting the Existing WAR File
+def deleteExistingWar() {
+  executeCmd(projDeleteCmd + projWebArchiveName)
+  executeCmd(projDeleteCmd + projWebArchiveName.tokenize(".")[0])
+}
+
+// Copying the New WAR File
+def copyWarToWebApps() {
+  copy {
+    from war
+    into projTomcatWebappsDir
+    println 'Copying new WAR file to webapps...'
+  }
+}
+
+// Starting the Tomcat Server
+def startTomcat() {
+  println 'Starting tomcat server...'
+  executeCmd(projTomcatStartCmd)
+}
+
+// Executing the Commands
+def executeCmd(command) {
+  def proc = command.execute()
+  proc.waitFor()
+  println proc.err.text
+  println proc.in.text
+}
+
+// Sending an Email Notification to the Customer
+task sendNotifyEmail(dependsOn: 'deployToTomcat') << {
+  def mailParams = [
+    mailhost: projEmailHost,
+    mailport: propEmailPort,
+    ssl: true,
+    user: projEmailUsername,
+    password: projEmailPassword,
+    messagemimetype: projEmailContentType,
+    subject: projEmailSubject
+  ]
+
+  def appLink = "http://45.55.156.148:8080/" + projWebArchiveName.tokenize(".")[0] + "/"
+  println 'The Deployed App Link is: ' + appLink
+
+  def messageBody = projEmailMessageBody.replace("*|APP_URL|*", projWebArchiveName.tokenize(".")[0])
+  ant.mail (mailParams) {
+    from(address: projEmailSender)
+    to(address: projEmailReceiver)
+    message(messageBody)
+    fileset(file: projEmailAttachment)
+  }
+  println 'Email notification has been sent!'
+}
+
+// Creating a IONIC Project for Android App Generation dependsOn: 'sendNotifyEmail'
+task createProject(dependsOn:'sendNotifyEmail') << {
+  println '\nStarted generating android application!'
+  copy {
+    from projOrgSourceDirName
+    into projAndroidProjName    
+  }
+  println 'Created new project!'
+}
+
+// Replacing WebContent Source Files to IONIC Project dependsOn: 'createProject' 
+task replaceSourceFiles(dependsOn: 'createProject' ) << {
+  println 'Replacing the project source files... ---'+ projSourceDirName+'----'+projDestiDirName
+  copy {
+    from projSourceDirName
+    into projDestiDirName
+  }  
+  println 'Replaced source files!'
+}
+
+// Updating the IONIC Libraries to Latest Version dependsOn: 'replaceSourceFiles'
+task updateTheLibs(dependsOn: 'replaceSourceFiles') << {
+  println 'Updating the libraries...'
+  exec {
+    workingDir = projAndroidProjName
+    commandLine 'ionic', 'lib', 'update'
+  }
+  println 'Libraries are updated!'
+}
+
+// Uploading IONIC Project to the IONIC Server
+task uploadProject(dependsOn: 'updateTheLibs') << {
+  println 'Uploading the project to server...'
+  exec {    
+    commandLine 'ionic', 'login', '--email', projIonicUsername, '--password', projIonicPassword
+  }
+  exec {
+    workingDir = projAndroidProjName
+    commandLine 'ionic', 'upload'
+  }
+}
+
+// Sharing the Android Application to the Customer
+task shareTheApp(dependsOn: 'uploadProject') << {
+  println 'Sharing the Application...'
+  exec {
+    workingDir = projAndroidProjName
+    commandLine 'ionic', 'share', projSharingUser
+  }
+}
+
+// Doing SSH with Mac Server to Kick the iOS Generation
+task sshToMacServer(dependsOn: 'shareTheApp') << {
+  ssh.run {
+    println '\nConnecting to Mac server...'
+    session(remotes.webServer) {
+      println 'Connected to Mac server!'
+      execute 'test -d ' + projiOSProjectDirPath + ' && echo "Workspace already exists!" || mkdir ' + projiOSProjectDirPath
+      println 'File transfering started to Mac server!'
+      execute 'test -d ' + projiOSProjectDirPath + '/www && echo "WebContent workspace already exists!" || mkdir ' + projiOSProjectDirPath + '/www'
+      put from: projiOSSourceDirName, into: projiOSProjectDirPath + '/www'
+      put from: projScriptSourceDirName + '/build.gradle', into: projiOSProjectDirPath
+      put from: projScriptSourceDirName + '/gradle.properties', into: projiOSProjectDirPath
+      put from: projScriptSourceDirName + '/generate.sh', into: projiOSProjectDirPath
+      println 'File transfer has been finished!'
+      println 'iOS application generation was started!'
+      execute 'sed -e \'s/\r$//\' ' + projiOSProjectDirPath + '/generate.sh > ' + projiOSProjectDirPath + '/start_execution.sh'
+      execute 'chmod +x ' + projiOSProjectDirPath + '/start_execution.sh'
+      execute projiOSProjectDirPath + '/start_execution.sh'
+      println 'iOS application has been generated and uploaded to server!'
+    }
+  }
+}
